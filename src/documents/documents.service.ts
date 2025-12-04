@@ -140,17 +140,14 @@ export class DocumentsService {
       return null;
     }
 
-    // PDF : commence par %PDF
     if (buffer.subarray(0, 4).toString('ascii') === '%PDF') {
       return 'application/pdf';
     }
 
-    // JPEG : commence par FF D8 FF
     if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
       return 'image/jpeg';
     }
 
-    // PNG : commence par 89 50 4E 47
     if (
       buffer[0] === 0x89 &&
       buffer[1] === 0x50 &&
@@ -160,16 +157,11 @@ export class DocumentsService {
       return 'image/png';
     }
 
-    // DOCX (Office Open XML) : est un fichier ZIP qui commence par PK (50 4B)
-    // et contient [Content_Types].xml dans l'archive
     if (buffer[0] === 0x50 && buffer[1] === 0x4b) {
-      // Vérifier si c'est un DOCX en cherchant les signatures ZIP typiques
-      // Les fichiers Office Open XML commencent par PK\x03\x04 ou PK\x05\x06
       if (
         (buffer[2] === 0x03 && buffer[3] === 0x04) ||
         (buffer[2] === 0x05 && buffer[3] === 0x06)
       ) {
-        // Vérifier la présence de [Content_Types].xml dans les premiers bytes
         const bufferString = buffer.subarray(0, Math.min(1024, buffer.length)).toString('utf-8');
         if (bufferString.includes('[Content_Types].xml')) {
           return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -177,7 +169,6 @@ export class DocumentsService {
       }
     }
 
-    // DOC (Microsoft Word 97-2003) : commence par D0 CF 11 E0 A1 B1 1A E1
     if (
       buffer[0] === 0xd0 &&
       buffer[1] === 0xcf &&
@@ -218,8 +209,6 @@ export class DocumentsService {
     }
 
     // Vérification du type réel du fichier (magic bytes)
-    // Cette vérification est critique pour la sécurité : elle empêche les attaques
-    // où un fichier malveillant prétend être un type inoffensif
     await this.verifyRealFileType(file.buffer, file.mimetype, uploadDto.type);
 
     // Génération d'un nom de fichier unique
@@ -300,7 +289,6 @@ export class DocumentsService {
       throw new NotFoundException('Document non trouvé');
     }
 
-    // Vérifier que l'utilisateur est le propriétaire ou a un partage
     if (document.ownerId !== userId) {
       const share = await this.prisma.documentShare.findUnique({
         where: {

@@ -9,13 +9,13 @@ export class ErrorResponseDto {
 
   @ApiProperty({
     description: 'Message d\'erreur',
-    example: 'Bad Request',
+    example: 'Requête invalide',
   })
   message: string | string[];
 
   @ApiProperty({
     description: 'Erreur',
-    example: 'Bad Request',
+    example: 'Requête invalide',
     required: false,
   })
   error?: string;

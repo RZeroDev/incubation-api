@@ -45,7 +45,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
           : (message as any).message || 'Une erreur interne est survenue',
       error:
         status === HttpStatus.INTERNAL_SERVER_ERROR
-          ? 'Internal Server Error'
+          ? 'Erreur serveur interne'
           : undefined,
       ...(process.env.NODE_ENV === 'development' && exception instanceof Error
         ? { stack: exception.stack }
@@ -70,7 +70,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
           path: request.url,
           statusCode: status,
           message: errorResponse.message,
-          error: exception instanceof Error ? exception.message : 'Unknown error',
+          error: exception instanceof Error ? exception.message : 'Erreur inconnue',
         },
         ipAddress: request.ip || request.connection?.remoteAddress,
         userAgent: request.headers['user-agent'],
