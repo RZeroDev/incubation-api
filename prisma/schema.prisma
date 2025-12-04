@@ -1,0 +1,125 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  firstName String?
+  lastName  String?
+  role      UserRole @default(USER)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  documents      Document[]
+  sharedDocuments DocumentShare[]
+  consents        Consent[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  BANK_OFFICER
+}
+
+model Document {
+  id          String   @id @default(uuid())
+  name        String
+  type        DocumentType
+  filePath    String
+  fileSize    Int
+  mimeType    String
+  description String?
+  metadata    Json?
+  ownerId     String
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  isEncrypted Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  shares DocumentShare[]
+
+  @@map("documents")
+}
+
+enum DocumentType {
+  KYC_IDENTITY
+  KYC_PROOF_OF_ADDRESS
+  KYC_BANK_STATEMENT
+  CONTRACT
+  OTHER
+}
+
+model DocumentShare {
+  id         String   @id @default(uuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  sharedWithId String
+  sharedWith User     @relation(fields: [sharedWithId], references: [id], onDelete: Cascade)
+  permission SharePermission @default(READ)
+  expiresAt  DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([documentId, sharedWithId])
+  @@map("document_shares")
+}
+
+enum SharePermission {
+  READ
+  READ_WRITE
+}
+
+model AuditLog {
+  id          String      @id @default(uuid())
+  userId      String?
+  action      String      // Ex: LOGIN, DOCUMENT_UPLOAD, DOCUMENT_SHARE, DATA_EXPORT, etc.
+  entityType  String?     // Ex: User, Document, DocumentShare
+  entityId    String?
+  details     Json?       // Détails supplémentaires de l'action
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime    @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model Consent {
+  id          String      @id @default(uuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        ConsentType
+  granted     Boolean     @default(true)
+  grantedAt   DateTime    @default(now())
+  revokedAt   DateTime?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@unique([userId, type])
+  @@index([userId])
+  @@map("consents")
+}
+
+enum ConsentType {
+  DATA_PROCESSING
+  MARKETING
+  ANALYTICS
+  COOKIES
+}
