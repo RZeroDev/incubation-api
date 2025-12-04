@@ -9,6 +9,7 @@ import { DocumentType, SharePermission } from '../generated/prisma/client';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import { fileTypeFromBuffer } from 'file-type';
 
 // Types de fichiers autorisés
 const ALLOWED_MIME_TYPES = {
@@ -67,6 +68,132 @@ export class DocumentsService {
     return size > 0 && size <= MAX_FILE_SIZE;
   }
 
+  /**
+   * Vérifie le type réel du fichier en analysant les magic bytes (signatures de fichier)
+   * et compare avec le type MIME déclaré par le client
+   */
+  private async verifyRealFileType(
+    fileBuffer: Buffer,
+    declaredMimeType: string,
+    documentType: DocumentType,
+  ): Promise<void> {
+    // Vérifier manuellement les magic bytes pour les types spéciaux
+    const detectedMimeType = this.detectFileTypeFromMagicBytes(fileBuffer);
+
+    // Si file-type ne peut pas détecter, utiliser notre détection manuelle
+    let realMimeType: string | null = null;
+
+    if (detectedMimeType) {
+      realMimeType = detectedMimeType;
+    } else {
+      // Essayer avec file-type pour les autres types
+      const fileTypeResult = await fileTypeFromBuffer(fileBuffer);
+      if (fileTypeResult) {
+        realMimeType = fileTypeResult.mime;
+      }
+    }
+
+    if (!realMimeType) {
+      throw new BadRequestException(
+        'Impossible de déterminer le type réel du fichier. Le fichier peut être corrompu ou dans un format non supporté.',
+      );
+    }
+
+    // Normaliser les types MIME pour la comparaison
+    const normalizeMimeType = (mime: string): string => {
+      // Normaliser jpg/jpeg
+      if (mime === 'image/jpg' || mime === 'image/jpeg') {
+        return 'image/jpeg';
+      }
+      return mime;
+    };
+
+    const normalizedRealType = normalizeMimeType(realMimeType);
+    const normalizedDeclaredType = normalizeMimeType(declaredMimeType);
+
+    // Vérifier que le type réel correspond au type déclaré
+    if (normalizedRealType !== normalizedDeclaredType) {
+      throw new BadRequestException(
+        `Type de fichier suspect : le fichier prétend être "${declaredMimeType}" mais est en réalité "${realMimeType}". ` +
+          'Le fichier peut être malveillant ou corrompu.',
+      );
+    }
+
+    // Vérifier que le type réel est autorisé pour ce type de document
+    const allowedTypes = ALLOWED_MIME_TYPES[documentType] || [];
+    const normalizedAllowedTypes = allowedTypes.map(normalizeMimeType);
+
+    if (!normalizedAllowedTypes.includes(normalizedRealType)) {
+      throw new BadRequestException(
+        `Type de fichier réel "${realMimeType}" non autorisé pour ${documentType}. ` +
+          `Types autorisés: ${allowedTypes.join(', ')}`,
+      );
+    }
+  }
+
+  /**
+   * Détecte le type de fichier en analysant les magic bytes (signatures de fichier)
+   * Cette méthode vérifie les premiers octets du fichier pour identifier son type réel
+   */
+  private detectFileTypeFromMagicBytes(buffer: Buffer): string | null {
+    if (buffer.length < 4) {
+      return null;
+    }
+
+    // PDF : commence par %PDF
+    if (buffer.subarray(0, 4).toString('ascii') === '%PDF') {
+      return 'application/pdf';
+    }
+
+    // JPEG : commence par FF D8 FF
+    if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+      return 'image/jpeg';
+    }
+
+    // PNG : commence par 89 50 4E 47
+    if (
+      buffer[0] === 0x89 &&
+      buffer[1] === 0x50 &&
+      buffer[2] === 0x4e &&
+      buffer[3] === 0x47
+    ) {
+      return 'image/png';
+    }
+
+    // DOCX (Office Open XML) : est un fichier ZIP qui commence par PK (50 4B)
+    // et contient [Content_Types].xml dans l'archive
+    if (buffer[0] === 0x50 && buffer[1] === 0x4b) {
+      // Vérifier si c'est un DOCX en cherchant les signatures ZIP typiques
+      // Les fichiers Office Open XML commencent par PK\x03\x04 ou PK\x05\x06
+      if (
+        (buffer[2] === 0x03 && buffer[3] === 0x04) ||
+        (buffer[2] === 0x05 && buffer[3] === 0x06)
+      ) {
+        // Vérifier la présence de [Content_Types].xml dans les premiers bytes
+        const bufferString = buffer.subarray(0, Math.min(1024, buffer.length)).toString('utf-8');
+        if (bufferString.includes('[Content_Types].xml')) {
+          return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        }
+      }
+    }
+
+    // DOC (Microsoft Word 97-2003) : commence par D0 CF 11 E0 A1 B1 1A E1
+    if (
+      buffer[0] === 0xd0 &&
+      buffer[1] === 0xcf &&
+      buffer[2] === 0x11 &&
+      buffer[3] === 0xe0 &&
+      buffer[4] === 0xa1 &&
+      buffer[5] === 0xb1 &&
+      buffer[6] === 0x1a &&
+      buffer[7] === 0xe1
+    ) {
+      return 'application/msword';
+    }
+
+    return null;
+  }
+
   async uploadDocument(
     userId: string,
     file: Express.Multer.File,
@@ -76,19 +203,24 @@ export class DocumentsService {
       description?: string;
     },
   ) {
-    // Validation du type de fichier
+    // Validation de la taille (avant toute autre opération)
+    if (!this.validateFileSize(file.size)) {
+      throw new BadRequestException(
+        `Fichier trop volumineux. Taille maximale: ${MAX_FILE_SIZE / 1024 / 1024} MB`,
+      );
+    }
+
+    // Validation du type de fichier déclaré
     if (!this.validateFileType(file.mimetype, uploadDto.type)) {
       throw new BadRequestException(
         `Type de fichier non autorisé pour ${uploadDto.type}. Types autorisés: ${ALLOWED_MIME_TYPES[uploadDto.type].join(', ')}`,
       );
     }
 
-    // Validation de la taille
-    if (!this.validateFileSize(file.size)) {
-      throw new BadRequestException(
-        `Fichier trop volumineux. Taille maximale: ${MAX_FILE_SIZE / 1024 / 1024} MB`,
-      );
-    }
+    // Vérification du type réel du fichier (magic bytes)
+    // Cette vérification est critique pour la sécurité : elle empêche les attaques
+    // où un fichier malveillant prétend être un type inoffensif
+    await this.verifyRealFileType(file.buffer, file.mimetype, uploadDto.type);
 
     // Génération d'un nom de fichier unique
     const fileExtension = path.extname(file.originalname);
