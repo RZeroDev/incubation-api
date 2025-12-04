@@ -9,7 +9,8 @@ COPY prisma ./prisma/
 RUN npm install
 
 COPY . .
-
+# Définir une DATABASE_URL factice pour prisma generate (pas besoin d'une vraie connexion)
+ENV DATABASE_URL="postgresql://neondb_owner:npg_PMeSr9YvH3cA@ep-dry-sea-a44cjo19-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
 RUN npx prisma generate && npm run build
 
 # Étape de production
