@@ -24,6 +24,7 @@ model User {
   documents      Document[]
   sharedDocuments DocumentShare[]
   consents        Consent[]
+  otpCodes        OtpCode[]
 
   @@map("users")
 }
@@ -122,4 +123,19 @@ enum ConsentType {
   MARKETING
   ANALYTICS
   COOKIES
+}
+
+model OtpCode {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  code      String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([code])
+  @@index([expiresAt])
+  @@map("otp_codes")
 }

@@ -3,12 +3,11 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
+import { VerifyOtpDto } from './dto/verify-otp.dto';
+import { OtpResponseDto } from './dto/otp-response.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { Public } from './decorators/public.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
-import { Roles } from './decorators/roles.decorator';
-import { RolesGuard } from './guards/roles.guard';
-import { UserRole } from '../generated/prisma/client';
 
 @ApiTags('Authentification')
 @Controller('auth')
@@ -18,18 +17,39 @@ export class AuthController {
   @Post('login')
   @Public()
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Connexion utilisateur' })
+  @ApiOperation({ summary: 'Étape 1 : Connexion utilisateur et génération du code OTP' })
   @ApiResponse({
     status: 200,
-    description: 'Connexion réussie',
-    type: AuthResponseDto,
+    description: 'Code OTP généré avec succès',
+    type: OtpResponseDto,
   })
   @ApiResponse({
     status: 401,
     description: 'Identifiants invalides',
   })
-  async login(@Body() loginDto: LoginDto): Promise<AuthResponseDto> {
+  async login(@Body() loginDto: LoginDto): Promise<OtpResponseDto> {
     return this.authService.login(loginDto);
+  }
+
+  @Post('verify-otp')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Étape 2 : Vérification du code OTP et obtention du token JWT' })
+  @ApiResponse({
+    status: 200,
+    description: 'Code OTP vérifié avec succès, token JWT retourné',
+    type: AuthResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Code OTP invalide ou expiré',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Utilisateur non trouvé ou compte désactivé',
+  })
+  async verifyOtp(@Body() verifyOtpDto: VerifyOtpDto): Promise<AuthResponseDto> {
+    return this.authService.verifyOtp(verifyOtpDto);
   }
 
   @Get('profile')
@@ -46,25 +66,5 @@ export class AuthController {
   })
   getProfile(@CurrentUser() user: any) {
     return user;
-  }
-
-  @Get('admin')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
-  @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: 'Endpoint réservé aux administrateurs' })
-  @ApiResponse({
-    status: 200,
-    description: 'Accès autorisé',
-  })
-  @ApiResponse({
-    status: 403,
-    description: 'Accès refusé - Rôle administrateur requis',
-  })
-  adminOnly(@CurrentUser() user: any) {
-    return {
-      message: 'Accès administrateur autorisé',
-      user,
-    };
   }
 }
